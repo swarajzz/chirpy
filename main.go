@@ -1,11 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"sync/atomic"
 )
 
 var port string = "8080"
+
+type apiConfig struct {
+	fileserverHits atomic.Int32
+}
 
 func handlerReadiness(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "text/plain; charset=utf-8")
@@ -13,12 +19,27 @@ func handlerReadiness(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg.fileserverHits.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (cfg *apiConfig) handlerMetris(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Hits: %d", cfg.fileserverHits.Load())))
+}
+
 func main() {
 	mux := http.NewServeMux()
+	var cfg apiConfig
+	cfg.fileserverHits.Store(0)
 
-	mux.Handle("/app/", http.StripPrefix("/app/", http.FileServer(http.Dir("."))))
+	mux.Handle("/app/", http.StripPrefix("/app/", cfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 
 	mux.HandleFunc("/healthz", handlerReadiness)
+	mux.HandleFunc("/serverhits", cfg.handlerMetris)
 
 	srv := http.Server{
 		Handler: mux,
@@ -26,6 +47,5 @@ func main() {
 	}
 
 	log.Println("Server is starting on :8080")
-
 	log.Fatal(srv.ListenAndServe())
 }
