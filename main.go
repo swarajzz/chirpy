@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -44,6 +45,34 @@ func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Store(0)
 }
 
+func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Body string `json:"body"`
+	}
+	params := parameters{}
+
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&params)
+	if err != nil {
+		fmt.Printf("Error parsing JSON %v", err)
+	}
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "Something went wrong"}`))
+		return
+	}
+
+	if len(params.Body) > 140 {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "Chirp is too long"}`))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"valid": true}`))
+}
+
 func main() {
 	mux := http.NewServeMux()
 	var cfg apiConfig
@@ -52,8 +81,11 @@ func main() {
 	mux.Handle("/app/", http.StripPrefix("/app/", cfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
+
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetris)
 	mux.HandleFunc("POST /admin/reset", cfg.resetMetrics)
+
+	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
 
 	srv := http.Server{
 		Handler: mux,
