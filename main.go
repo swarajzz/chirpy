@@ -31,6 +31,11 @@ func (cfg *apiConfig) handlerMetris(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Hits: %d", cfg.fileserverHits.Load())))
 }
 
+func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	cfg.fileserverHits.Store(0)
+}
+
 func main() {
 	mux := http.NewServeMux()
 	var cfg apiConfig
@@ -38,8 +43,9 @@ func main() {
 
 	mux.Handle("/app/", http.StripPrefix("/app/", cfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 
-	mux.HandleFunc("/healthz", handlerReadiness)
-	mux.HandleFunc("/serverhits", cfg.handlerMetris)
+	mux.HandleFunc("GET /api/healthz", handlerReadiness)
+	mux.HandleFunc("GET /api/metrics", cfg.handlerMetris)
+	mux.HandleFunc("POST /api/reset", cfg.resetMetrics)
 
 	srv := http.Server{
 		Handler: mux,
