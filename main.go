@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -45,6 +46,23 @@ func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Store(0)
 }
 
+func censorString(str string) string {
+	words := strings.Split(str, " ")
+
+	for i, word := range words {
+		switch strings.ToLower(word) {
+		case "kerfuffle":
+			words[i] = "****"
+		case "sharbert":
+			words[i] = "****"
+		case "fornax":
+			words[i] = "****"
+		}
+	}
+
+	return strings.Join(words, " ")
+}
+
 func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Body string `json:"body"`
@@ -53,10 +71,6 @@ func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&params)
-	if err != nil {
-		fmt.Printf("Error parsing JSON %v", err)
-	}
-
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error": "Something went wrong"}`))
@@ -68,9 +82,10 @@ func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error": "Chirp is too long"}`))
 		return
 	}
+	censoredString := censorString(params.Body)
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"valid": true}`))
+	w.Write([]byte("cleaned_body: " + censoredString))
 }
 
 func main() {
