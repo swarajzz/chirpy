@@ -1,18 +1,25 @@
 package main
 
 import (
+	"chirpy/internal/database"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 var port string = "8080"
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	DB             *database.Queries
 }
 
 func handlerReadiness(w http.ResponseWriter, r *http.Request) {
@@ -32,18 +39,32 @@ func (cfg *apiConfig) handlerMetris(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `
-<html>
-  <body>
-    <h1>Welcome, Chirpy Admin</h1>
-    <p>Chirpy has been visited %d times!</p>
-  </body>
-</html>
+	<html>
+  		<body>
+    		<h1>Welcome, Chirpy Admin</h1>
+    		<p>Chirpy has been visited %d times!</p>
+  		</body>
+	</html>
 `, cfg.fileserverHits.Load())
 }
 
-func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	cfg.fileserverHits.Store(0)
+func (apiCfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
+	platform := os.Getenv("PLATFORM")
+	if platform != "DEV" {
+		respondWithError(w, http.StatusForbidden, "On;y allowed in DEV environment")
+		return
+	}
+
+	err := apiCfg.DB.DeleteUsers(r.Context())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to delete users")
+		return
+	}
+	apiCfg.fileserverHits.Store(0)
+
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"message": "Metrics reset successfully and users deleted.",
+	})
 }
 
 func censorString(str string) string {
@@ -88,25 +109,61 @@ func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("cleaned_body: " + censoredString))
 }
 
-func main() {
-	mux := http.NewServeMux()
-	var cfg apiConfig
-	cfg.fileserverHits.Store(0)
+func (apiCfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email string `json:"email"`
+	}
 
-	mux.Handle("/app/", http.StripPrefix("/app/", cfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, 400, fmt.Sprint("error parsing JSON:", err))
+		return
+	}
+
+	user, err := apiCfg.DB.CreateUser(r.Context(), params.Email)
+	if err != nil {
+		log.Fatal(err)
+	}
+	respondWithJSON(w, 201, databaseUserToUser(user))
+}
+
+func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("DB_URL environment variable not set")
+	}
+	dbUrl := os.Getenv("DB_URL")
+
+	db, err := sql.Open("postgres", dbUrl)
+	dbQueries := database.New(db)
+	if err != nil {
+		log.Fatal("can't connect to database", err)
+	}
+	mux := http.NewServeMux()
+
+	apiCfg := apiConfig{
+		DB: dbQueries,
+	}
+
+	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 
-	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetris)
-	mux.HandleFunc("POST /admin/reset", cfg.resetMetrics)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetris)
+	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
 
 	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
+
+	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 
 	srv := http.Server{
 		Handler: mux,
 		Addr:    ":" + port,
 	}
 
-	log.Println("Server is starting on :8080")
+	fmt.Print("dburl" + dbUrl)
+	log.Println("Server is starting on :8080", dbUrl)
 	log.Fatal(srv.ListenAndServe())
 }
