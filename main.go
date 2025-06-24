@@ -88,7 +88,7 @@ func censorString(str string) string {
 func (apiCfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Body   string    `json:"body"`
-		UserId uuid.UUID `json:"user_id"`
+		UserID uuid.UUID `json:"user_id"`
 	}
 	params := parameters{}
 
@@ -105,7 +105,7 @@ func (apiCfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, r *http.Req
 
 	chirp, err := apiCfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
 		Body:   censoredString,
-		UserID: params.UserId,
+		UserID: params.UserID,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -118,6 +118,22 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, databaseChirpsToChirps(chirps))
 	} else {
 		respondWithError(w, http.StatusInternalServerError, ok.Error())
+	}
+}
+
+func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
+	chirpID := r.PathValue("chirpID")
+
+	parsedChirpID, err := uuid.Parse(chirpID)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	if chirp, ok := cfg.DB.GetChirp(r.Context(), parsedChirpID); ok == nil {
+		respondWithJSON(w, http.StatusOK, databaseChirpToChirp(chirp))
+	} else {
+		respondWithError(w, http.StatusNotFound, ok.Error())
 	}
 }
 
@@ -168,6 +184,7 @@ func main() {
 
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
 	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerValidateChirp)
 
