@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -84,29 +85,32 @@ func censorString(str string) string {
 	return strings.Join(words, " ")
 }
 
-func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
+func (apiCfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body string `json:"body"`
+		Body   string    `json:"body"`
+		UserId uuid.UUID `json:"user_id"`
 	}
 	params := parameters{}
 
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&params)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Something went wrong"}`))
-		return
+		respondWithJSON(w, http.StatusInternalServerError, []byte(`{"error": "Something went wrong"}`))
 	}
 
 	if len(params.Body) > 140 {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Chirp is too long"}`))
-		return
+		respondWithJSON(w, http.StatusBadRequest, []byte(`{"error": "Chirp is too long"}`))
 	}
 	censoredString := censorString(params.Body)
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("cleaned_body: " + censoredString))
+	chirp, err := apiCfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
+		Body:   censoredString,
+		UserID: params.UserId,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	respondWithJSON(w, http.StatusCreated, databaseChirpToChirp(chirp))
 }
 
 func (apiCfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
@@ -154,9 +158,8 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetris)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
 
-	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
-
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
+	mux.HandleFunc("POST /api/chirps", apiCfg.handlerValidateChirp)
 
 	srv := http.Server{
 		Handler: mux,
