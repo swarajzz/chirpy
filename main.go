@@ -113,6 +113,14 @@ func (apiCfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, r *http.Req
 	respondWithJSON(w, http.StatusCreated, databaseChirpToChirp(chirp))
 }
 
+func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
+	if chirps, ok := cfg.DB.GetChirps(r.Context()); ok == nil {
+		respondWithJSON(w, http.StatusOK, databaseChirpsToChirps(chirps))
+	} else {
+		respondWithError(w, http.StatusInternalServerError, ok.Error())
+	}
+}
+
 func (apiCfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Email string `json:"email"`
@@ -159,6 +167,8 @@ func main() {
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
 
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
+
+	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerValidateChirp)
 
 	srv := http.Server{

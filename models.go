@@ -40,3 +40,11 @@ func databaseChirpToChirp(dbChirp database.Chirp) Chirp {
 		UserID:    dbChirp.UserID,
 	}
 }
+
+func databaseChirpsToChirps(dbChirp []database.Chirp) []Chirp {
+	chirps := []Chirp{}
+	for _, dbChirp := range dbChirp {
+		chirps = append(chirps, databaseChirpToChirp(dbChirp))
+	}
+	return chirps
+}
