@@ -12,6 +12,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"name"`
+	// HashedPassword string    `json:"hashed_password"`
 }
 
 type Chirp struct {
@@ -28,6 +29,7 @@ func databaseUserToUser(dbUser database.User) User {
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email:     dbUser.Email,
+		// HashedPassword: dbUser.HashedPassword,
 	}
 }
 

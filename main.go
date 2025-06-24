@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chirpy/internal/auth"
 	"chirpy/internal/database"
 	"database/sql"
 	"encoding/json"
@@ -139,22 +140,62 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 
 func (apiCfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, 400, fmt.Sprint("error parsing JSON:", err))
+		respondWithError(w, http.StatusBadRequest, fmt.Sprint("error parsing JSON:", err))
 		return
 	}
 
-	user, err := apiCfg.DB.CreateUser(r.Context(), params.Email)
+	hashed_password, err := auth.HashPassword(params.Password)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	user, err := apiCfg.DB.CreateUser(r.Context(), database.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: hashed_password,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
 	respondWithJSON(w, 201, databaseUserToUser(user))
+}
+
+func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, fmt.Sprint("error parsing JSON:", err))
+		return
+	}
+
+	user, err := apiCfg.DB.GetUser(r.Context(), params.Email)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error retrieving user")
+		return
+	}
+
+	fmt.Println(user.HashedPassword)
+
+	if err := auth.CheckPasswordHash(params.Password, user.HashedPassword); err == nil {
+		respondWithJSON(w, 200, databaseUserToUser(user))
+	} else {
+		fmt.Println(err)
+		respondWithError(w, http.StatusUnauthorized, "unauthorized")
+	}
 }
 
 func main() {
@@ -182,6 +223,7 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetris)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
 
+	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
