@@ -11,7 +11,8 @@ type User struct {
 	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"name"`
+	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 	// HashedPassword string    `json:"hashed_password"`
 }
 
@@ -23,14 +24,20 @@ type Chirp struct {
 	UserID    uuid.UUID `json:"user_id"`
 }
 
-func databaseUserToUser(dbUser database.User) User {
-	return User{
+func databaseUserToUser(dbUser database.User, token ...string) User {
+	user := User{
 		ID:        dbUser.ID,
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email:     dbUser.Email,
 		// HashedPassword: dbUser.HashedPassword,
 	}
+
+	if len(token) > 0 {
+		user.Token = token[0]
+	}
+
+	return user
 }
 
 func databaseChirpToChirp(dbChirp database.Chirp) Chirp {

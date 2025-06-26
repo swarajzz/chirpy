@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -22,6 +23,7 @@ var port string = "8080"
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	DB             *database.Queries
+	Secret         string
 }
 
 func handlerReadiness(w http.ResponseWriter, r *http.Request) {
@@ -104,9 +106,19 @@ func (apiCfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, r *http.Req
 	}
 	censoredString := censorString(params.Body)
 
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	userId, err := auth.ValidateJWT(token, apiCfg.Secret)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	chirp, err := apiCfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
 		Body:   censoredString,
-		UserID: params.UserID,
+		UserID: userId,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -169,8 +181,9 @@ func (apiCfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Reques
 
 func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email            string `json:"email"`
+		Password         string `json:"password"`
+		ExpiresInSeconds int64  `json:"expires_in_seconds"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -188,10 +201,12 @@ func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println(user.HashedPassword)
-
 	if err := auth.CheckPasswordHash(params.Password, user.HashedPassword); err == nil {
-		respondWithJSON(w, 200, databaseUserToUser(user))
+		token, err := auth.MakeJWT(user.ID, apiCfg.Secret, time.Duration(params.ExpiresInSeconds))
+		if err != nil {
+			log.Fatal(err)
+		}
+		respondWithJSON(w, 200, databaseUserToUser(user, token))
 	} else {
 		fmt.Println(err)
 		respondWithError(w, http.StatusUnauthorized, "unauthorized")
@@ -212,8 +227,10 @@ func main() {
 	}
 	mux := http.NewServeMux()
 
+	secret := os.Getenv("SECRET")
 	apiCfg := apiConfig{
-		DB: dbQueries,
+		DB:     dbQueries,
+		Secret: secret,
 	}
 
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
