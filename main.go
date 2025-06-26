@@ -55,7 +55,7 @@ func (cfg *apiConfig) handlerMetris(w http.ResponseWriter, r *http.Request) {
 func (apiCfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
 	platform := os.Getenv("PLATFORM")
 	if platform != "DEV" {
-		respondWithError(w, http.StatusForbidden, "On;y allowed in DEV environment")
+		respondWithError(w, http.StatusForbidden, "Only allowed in DEV environment")
 		return
 	}
 
@@ -108,12 +108,14 @@ func (apiCfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, r *http.Req
 
 	token, err := auth.GetBearerToken(r.Header)
 	if err != nil {
-		log.Fatal(err)
+		respondWithError(w, http.StatusUnauthorized, `"error": "Authorization token is missing or invalid"`)
+		return
 	}
 
 	userId, err := auth.ValidateJWT(token, apiCfg.Secret)
 	if err != nil {
-		log.Fatal(err)
+		respondWithError(w, http.StatusUnauthorized, "Invalid or expired token")
+		return
 	}
 
 	chirp, err := apiCfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
@@ -121,7 +123,8 @@ func (apiCfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, r *http.Req
 		UserID: userId,
 	})
 	if err != nil {
-		log.Fatal(err)
+		respondWithError(w, http.StatusUnauthorized, "Failed to create chirp")
+		return
 	}
 	respondWithJSON(w, http.StatusCreated, databaseChirpToChirp(chirp))
 }
@@ -131,6 +134,7 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, databaseChirpsToChirps(chirps))
 	} else {
 		respondWithError(w, http.StatusInternalServerError, ok.Error())
+		return
 	}
 }
 
@@ -147,6 +151,7 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, databaseChirpToChirp(chirp))
 	} else {
 		respondWithError(w, http.StatusNotFound, ok.Error())
+		return
 	}
 }
 
@@ -160,13 +165,14 @@ func (apiCfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Reques
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, fmt.Sprint("error parsing JSON:", err))
+		respondWithError(w, http.StatusBadRequest, fmt.Sprintf("Error parsing request body: %v", err))
 		return
 	}
 
 	hashed_password, err := auth.HashPassword(params.Password)
 	if err != nil {
-		log.Fatal(err)
+		respondWithError(w, http.StatusInternalServerError, "Error processing password")
+		return
 	}
 
 	user, err := apiCfg.DB.CreateUser(r.Context(), database.CreateUserParams{
@@ -174,7 +180,8 @@ func (apiCfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Reques
 		HashedPassword: hashed_password,
 	})
 	if err != nil {
-		log.Fatal(err)
+		respondWithError(w, http.StatusInternalServerError, "Error creating user")
+		return
 	}
 	respondWithJSON(w, 201, databaseUserToUser(user))
 }
@@ -204,12 +211,14 @@ func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	if err := auth.CheckPasswordHash(params.Password, user.HashedPassword); err == nil {
 		token, err := auth.MakeJWT(user.ID, apiCfg.Secret, time.Duration(params.ExpiresInSeconds))
 		if err != nil {
-			log.Fatal(err)
+			respondWithError(w, http.StatusInternalServerError, "Error creating JWT token")
+			return
 		}
 		respondWithJSON(w, 200, databaseUserToUser(user, token))
 	} else {
 		fmt.Println(err)
 		respondWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
 	}
 }
 
