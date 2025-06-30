@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -30,25 +32,21 @@ func CheckPasswordHash(password, hash string) error {
 	return nil
 }
 
-func getClaims(userID uuid.UUID, expiresIn time.Duration) *jwt.RegisteredClaims {
+func getClaims(userID uuid.UUID) *jwt.RegisteredClaims {
 	const defaultExpiration = time.Hour
-
-	if expiresIn <= 0 || expiresIn > defaultExpiration {
-		expiresIn = defaultExpiration
-	}
 
 	claims := &jwt.RegisteredClaims{
 		Issuer:    "chirpy",
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiresIn)),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		Subject:   userID.String(),
 	}
 
 	return claims
 }
 
-func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
-	claims := getClaims(userID, expiresIn)
+func MakeJWT(userID uuid.UUID, tokenSecret string) (string, error) {
+	claims := getClaims(userID)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
@@ -92,5 +90,17 @@ func GetBearerToken(headers http.Header) (string, error) {
 
 	token := strings.TrimSpace(header[len("bearer "):])
 
+	return token, nil
+}
+
+func MakeRefreshToken() (string, error) {
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	if err != nil {
+		fmt.Println(err)
+		return "", err
+	}
+
+	token := hex.EncodeToString(key)
 	return token, nil
 }

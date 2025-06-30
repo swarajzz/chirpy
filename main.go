@@ -188,9 +188,8 @@ func (apiCfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Reques
 
 func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email            string `json:"email"`
-		Password         string `json:"password"`
-		ExpiresInSeconds int64  `json:"expires_in_seconds"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -209,17 +208,55 @@ func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := auth.CheckPasswordHash(params.Password, user.HashedPassword); err == nil {
-		token, err := auth.MakeJWT(user.ID, apiCfg.Secret, time.Duration(params.ExpiresInSeconds))
+		accessToken, err := auth.MakeJWT(user.ID, apiCfg.Secret)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Error creating JWT token")
 			return
 		}
-		respondWithJSON(w, 200, databaseUserToUser(user, token))
+
+		refresh_token, err := auth.MakeRefreshToken()
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		apiCfg.DB.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+			Token:     refresh_token,
+			UserID:    user.ID,
+			ExpiresAt: time.Now().Add(time.Hour * 24 * 60),
+			RevokedAt: sql.NullTime{Valid: false},
+		})
+
+		respondWithJSON(w, 200, databaseUserWithAuth(user, accessToken, refresh_token))
 	} else {
 		fmt.Println(err)
 		respondWithError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+}
+
+func (apiCfg *apiConfig) handlerRefresh(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, `"error": "Authorization token is missing or invalid"`)
+		return
+	}
+
+	user, err := apiCfg.DB.GetUserFromRefreshToken(r.Context(), token)
+
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	accessToken, err := auth.MakeJWT(user.ID, apiCfg.Secret)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating JWT token")
+		return
+	}
+
+	respondWithJSON(w, 200, map[string]string{
+		"token": accessToken,
+	})
 }
 
 func main() {
@@ -255,6 +292,8 @@ func main() {
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
 	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerValidateChirp)
+
+	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
 
 	srv := http.Server{
 		Handler: mux,
