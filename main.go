@@ -201,6 +201,11 @@ func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if params.Email == "" || params.Password == "" {
+		respondWithError(w, http.StatusBadRequest, "Email and password are required")
+		return
+	}
+
 	user, err := apiCfg.DB.GetUser(r.Context(), params.Email)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error retrieving user")
@@ -275,6 +280,51 @@ func (apiCfg *apiConfig) handlerRevoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (apiCfg *apiConfig) handlerUpdateCredentials(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	params := parameters{}
+
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, []byte(`{"error": "Something went wrong"}`))
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, `"error": "Authorization token is missing or invalid"`)
+		return
+	}
+
+	userId, err := auth.ValidateJWT(token, apiCfg.Secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid or expired token")
+		return
+	}
+
+	hashed_password, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error processing password")
+		return
+	}
+
+	user, err := apiCfg.DB.UpdateUserCredentials(r.Context(), database.UpdateUserCredentialsParams{
+		ID:             userId,
+		Email:          params.Email,
+		HashedPassword: hashed_password,
+	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, databaseUserToUser(user))
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -311,6 +361,8 @@ func main() {
 
 	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
 	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
+
+	mux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateCredentials)
 
 	srv := http.Server{
 		Handler: mux,
