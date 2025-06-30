@@ -325,6 +325,42 @@ func (apiCfg *apiConfig) handlerUpdateCredentials(w http.ResponseWriter, r *http
 	respondWithJSON(w, http.StatusOK, databaseUserToUser(user))
 }
 
+func (apiCfg *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request) {
+	chirpId := r.PathValue("chirpID")
+
+	parsedChirpId, err := uuid.Parse(chirpId)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, `"error": "Authorization token is missing or invalid"`)
+		return
+	}
+
+	_, err = auth.ValidateJWT(token, apiCfg.Secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid or expired token")
+		return
+	}
+
+	_, err = apiCfg.DB.GetChirp(r.Context(), parsedChirpId)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	err = apiCfg.DB.DeleteChirp(r.Context(), parsedChirpId)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, nil)
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -363,6 +399,7 @@ func main() {
 	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
 
 	mux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateCredentials)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handlerDeleteChirp)
 
 	srv := http.Server{
 		Handler: mux,
