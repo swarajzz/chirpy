@@ -259,6 +259,22 @@ func (apiCfg *apiConfig) handlerRefresh(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (apiCfg *apiConfig) handlerRevoke(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, `"error": "Authorization token is missing or invalid"`)
+		return
+	}
+
+	err = apiCfg.DB.RevokeToken(r.Context(), token)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -294,6 +310,7 @@ func main() {
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerValidateChirp)
 
 	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
 
 	srv := http.Server{
 		Handler: mux,

@@ -9,3 +9,8 @@ VALUES (
     $4
 )
 RETURNING *;
+
+-- name: RevokeToken :exec
+UPDATE refresh_tokens 
+SET revoked_at = NOW(), updated_at = NOW()
+WHERE token = $1;
