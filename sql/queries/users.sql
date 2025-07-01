@@ -12,9 +12,13 @@ RETURNING *;
 -- name: DeleteUsers :exec
 DELETE FROM users;
 
--- name: GetUser :one
+-- name: GetUserFromEmail :one
 SELECT * FROM users
 WHERE email = $1;
+
+-- name: GetUserFromId :one
+SELECT * FROM users
+WHERE id = $1;
 
 -- name: GetUserFromRefreshToken :one
 SELECT users.* FROM users
@@ -27,5 +31,11 @@ AND refresh_tokens.revoked_at IS NULL;
 -- name: UpdateUserCredentials :one
 UPDATE users
 SET email = $2, hashed_password = $3
+WHERE id = $1
+RETURNING *;
+
+-- name: UpgradeUser :one
+UPDATE users
+SET is_chirpy_red = TRUE
 WHERE id = $1
 RETURNING *;

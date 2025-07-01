@@ -206,7 +206,7 @@ func (apiCfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := apiCfg.DB.GetUser(r.Context(), params.Email)
+	user, err := apiCfg.DB.GetUserFromEmail(r.Context(), params.Email)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error retrieving user")
 		return
@@ -361,6 +361,36 @@ func (apiCfg *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Reque
 	respondWithJSON(w, http.StatusNoContent, nil)
 }
 
+func (apiCfg *apiConfig) handlerPolkaWebhook(w http.ResponseWriter, r *http.Request) {
+	type UserData struct {
+		UserId uuid.UUID `json:"user_id"`
+	}
+	type parameters struct {
+		Event string   `json:"event"`
+		Data  UserData `json:"data"`
+	}
+
+	params := parameters{}
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&params); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	if params.Event == "user.upgraded" {
+		user, err := apiCfg.DB.GetUserFromId(r.Context(), params.Data.UserId)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, "User not found")
+			return
+		}
+
+		apiCfg.DB.UpgradeUser(r.Context(), user.ID)
+		respondWithJSON(w, http.StatusNoContent, nil)
+	} else {
+		respondWithJSON(w, http.StatusNoContent, nil)
+	}
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -400,6 +430,8 @@ func main() {
 
 	mux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateCredentials)
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handlerDeleteChirp)
+
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handlerPolkaWebhook)
 
 	srv := http.Server{
 		Handler: mux,
