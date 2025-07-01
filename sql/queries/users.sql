@@ -34,8 +34,7 @@ SET email = $2, hashed_password = $3
 WHERE id = $1
 RETURNING *;
 
--- name: UpgradeUser :one
+-- name: UpgradeUser :exec
 UPDATE users
 SET is_chirpy_red = TRUE
-WHERE id = $1
-RETURNING *;
+WHERE id = $1;

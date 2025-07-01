@@ -24,6 +24,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	DB             *database.Queries
 	Secret         string
+	PolkaSecret    string
 }
 
 func handlerReadiness(w http.ResponseWriter, r *http.Request) {
@@ -377,6 +378,17 @@ func (apiCfg *apiConfig) handlerPolkaWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	if apiKey != apiCfg.PolkaSecret {
+		respondWithError(w, http.StatusUnauthorized, "Invalid Api Key")
+		return
+	}
+
 	if params.Event == "user.upgraded" {
 		user, err := apiCfg.DB.GetUserFromId(r.Context(), params.Data.UserId)
 		if err != nil {
@@ -384,7 +396,11 @@ func (apiCfg *apiConfig) handlerPolkaWebhook(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		apiCfg.DB.UpgradeUser(r.Context(), user.ID)
+		err = apiCfg.DB.UpgradeUser(r.Context(), user.ID)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Could not upgrade user")
+			return
+		}
 		respondWithJSON(w, http.StatusNoContent, nil)
 	} else {
 		respondWithJSON(w, http.StatusNoContent, nil)
@@ -406,9 +422,11 @@ func main() {
 	mux := http.NewServeMux()
 
 	secret := os.Getenv("SECRET")
+	polkaSecret := os.Getenv("POLKA_KEY")
 	apiCfg := apiConfig{
-		DB:     dbQueries,
-		Secret: secret,
+		DB:          dbQueries,
+		Secret:      secret,
+		PolkaSecret: polkaSecret,
 	}
 
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
