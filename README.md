@@ -27,6 +27,9 @@ This is not, in fact, a real project, but instead a guided project created throu
     * `github.com/google/uuid`
     * `github.com/joho/godotenv`
     * `github.com/lib/pq` (PostgreSQL driver)
+    * `github.com/pressly/goose/v3` (Database migrations tool)
+    * `github.com/sqlc-dev/sqlc` (SQL code generation (type-safe Go from SQL))
+
 
 ---
 
